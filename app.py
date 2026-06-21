@@ -3,11 +3,12 @@ import os
 import uuid
 import datetime
 import io
-from flask import Flask, render_template, request, redirect, url_for, Response, flash
+from flask import Flask, render_template, request, redirect, url_for, Response, flash, session, send_file
+from werkzeug.security import generate_password_hash, check_password_hash
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
@@ -17,7 +18,10 @@ app.secret_key = os.environ.get('SECRET_KEY', 'trip-expenses-secret')
 # DATA_DIR: use /data (Railway/Render persistent volume) if it exists, else local data/
 _data_dir = '/data' if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data')
 os.makedirs(_data_dir, exist_ok=True)
+os.makedirs(os.path.join(_data_dir, 'photos'), exist_ok=True)
 DATA_FILE = os.path.join(_data_dir, 'trips.json')
+
+ALLOWED_PHOTO_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp'}
 
 
 def load_data():
@@ -116,17 +120,32 @@ def new_trip():
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
         participants = [p.strip() for p in request.form.getlist('participants') if p.strip()]
+        creator_password = request.form.get('creator_password', '').strip()
+        confirm_password = request.form.get('confirm_password', '').strip()
+
         if not name or len(participants) < 2:
             return render_template('new_trip.html', error='Please enter a trip name and at least 2 participants.')
+
+        if creator_password and creator_password != confirm_password:
+            return render_template('new_trip.html', error='Passwords do not match.')
+
         data = load_data()
         trip_id = str(uuid.uuid4())[:8]
-        data[trip_id] = {
+        trip = {
             'name': name,
             'participants': participants,
             'expenses': [],
             'created_at': datetime.datetime.now().isoformat(),
         }
+        if creator_password:
+            trip['creator_password'] = generate_password_hash(creator_password)
+
+        data[trip_id] = trip
         save_data(data)
+
+        if creator_password:
+            session[f'creator_{trip_id}'] = True
+
         return redirect(url_for('trip_detail', trip_id=trip_id))
     return render_template('new_trip.html')
 
@@ -138,7 +157,43 @@ def trip_detail(trip_id):
     if not trip:
         return redirect(url_for('index'))
     summary = calculate_settlement(trip)
-    return render_template('trip.html', trip=trip, trip_id=trip_id, summary=summary)
+    is_creator = session.get(f'creator_{trip_id}', False)
+    has_password = bool(trip.get('creator_password'))
+    return render_template('trip.html', trip=trip, trip_id=trip_id, summary=summary,
+                           is_creator=is_creator, has_password=has_password)
+
+
+@app.route('/trip/<trip_id>/creator_login', methods=['POST'])
+def creator_login(trip_id):
+    data = load_data()
+    trip = data.get(trip_id)
+    if not trip:
+        return redirect(url_for('index'))
+    password = request.form.get('password', '')
+    if trip.get('creator_password') and check_password_hash(trip['creator_password'], password):
+        session[f'creator_{trip_id}'] = True
+    else:
+        flash('Incorrect password.', 'error')
+    return redirect(url_for('trip_detail', trip_id=trip_id))
+
+
+@app.route('/trip/<trip_id>/creator_logout', methods=['POST'])
+def creator_logout(trip_id):
+    session.pop(f'creator_{trip_id}', None)
+    return redirect(url_for('trip_detail', trip_id=trip_id))
+
+
+@app.route('/trip/<trip_id>/add_participant', methods=['POST'])
+def add_participant(trip_id):
+    data = load_data()
+    trip = data.get(trip_id)
+    if not trip:
+        return redirect(url_for('index'))
+    person = request.form.get('person', '').strip()
+    if person and person not in trip['participants'] and len(trip['participants']) < 10:
+        trip['participants'].append(person)
+        save_data(data)
+    return redirect(url_for('trip_detail', trip_id=trip_id))
 
 
 @app.route('/trip/<trip_id>/add_expense', methods=['POST'])
@@ -152,6 +207,9 @@ def add_expense(trip_id):
     paid_by = request.form.get('paid_by', '').strip()
     amount = request.form.get('amount', '0').strip()
     split_among = request.form.getlist('split_among')
+    expense_date = request.form.get('expense_date', '').strip()
+    if not expense_date:
+        expense_date = datetime.date.today().isoformat()
 
     try:
         amount = float(amount)
@@ -161,16 +219,39 @@ def add_expense(trip_id):
     if not split_among:
         split_among = trip['participants']
 
+    expense_id = str(uuid.uuid4())[:8]
     expense = {
-        'id': str(uuid.uuid4())[:8],
+        'id': expense_id,
         'description': description,
         'paid_by': paid_by,
         'amount': amount,
         'split_among': split_among,
+        'date': expense_date,
     }
+
+    # Handle photo upload
+    photo = request.files.get('photo')
+    if photo and photo.filename:
+        ext = photo.filename.rsplit('.', 1)[-1].lower() if '.' in photo.filename else ''
+        if ext in ALLOWED_PHOTO_EXTENSIONS:
+            photo_path = os.path.join(_data_dir, 'photos', f'{expense_id}.{ext}')
+            photo.save(photo_path)
+            expense['photo_ext'] = ext
+
     trip['expenses'].append(expense)
     save_data(data)
     return redirect(url_for('trip_detail', trip_id=trip_id))
+
+
+@app.route('/photo/<expense_id>')
+def serve_photo(expense_id):
+    # Find photo file for this expense_id
+    photos_dir = os.path.join(_data_dir, 'photos')
+    for ext in ALLOWED_PHOTO_EXTENSIONS:
+        path = os.path.join(photos_dir, f'{expense_id}.{ext}')
+        if os.path.exists(path):
+            return send_file(path)
+    return '', 404
 
 
 @app.route('/trip/<trip_id>/delete_expense/<expense_id>', methods=['POST'])
@@ -178,16 +259,43 @@ def delete_expense(trip_id, expense_id):
     data = load_data()
     trip = data.get(trip_id)
     if trip:
-        trip['expenses'] = [e for e in trip['expenses'] if e['id'] != expense_id]
-        save_data(data)
+        is_creator = session.get(f'creator_{trip_id}', False)
+        has_password = bool(trip.get('creator_password'))
+        if is_creator or not has_password:
+            # Also delete photo if exists
+            for ext in ALLOWED_PHOTO_EXTENSIONS:
+                photo_path = os.path.join(_data_dir, 'photos', f'{expense_id}.{ext}')
+                if os.path.exists(photo_path):
+                    try:
+                        os.remove(photo_path)
+                    except Exception:
+                        pass
+            trip['expenses'] = [e for e in trip['expenses'] if e['id'] != expense_id]
+            save_data(data)
     return redirect(url_for('trip_detail', trip_id=trip_id))
 
 
 @app.route('/trip/<trip_id>/delete', methods=['POST'])
 def delete_trip(trip_id):
     data = load_data()
-    data.pop(trip_id, None)
-    save_data(data)
+    trip = data.get(trip_id)
+    if trip:
+        is_creator = session.get(f'creator_{trip_id}', False)
+        has_password = bool(trip.get('creator_password'))
+        if is_creator or not has_password:
+            # Delete all photos for this trip
+            for exp in trip.get('expenses', []):
+                exp_id = exp.get('id', '')
+                for ext in ALLOWED_PHOTO_EXTENSIONS:
+                    photo_path = os.path.join(_data_dir, 'photos', f'{exp_id}.{ext}')
+                    if os.path.exists(photo_path):
+                        try:
+                            os.remove(photo_path)
+                        except Exception:
+                            pass
+            data.pop(trip_id, None)
+            save_data(data)
+            session.pop(f'creator_{trip_id}', None)
     return redirect(url_for('index'))
 
 
@@ -232,7 +340,6 @@ def import_trip():
             return render_template('import_trip.html')
 
         data = load_data()
-        # Reuse original trip_id if not already taken, otherwise generate new one
         trip_id = import_data.get('trip_id', str(uuid.uuid4())[:8])
         if trip_id in data:
             trip_id = str(uuid.uuid4())[:8]
@@ -294,7 +401,7 @@ def download_pdf(trip_id):
 
     # Header banner
     header_data = [[
-        Paragraph(f'✈  {trip["name"]}', title_style),
+        Paragraph(f'  {trip["name"]}', title_style),
     ]]
     header_table = Table(header_data, colWidths=[17*cm])
     header_table.setStyle(TableStyle([
@@ -322,9 +429,9 @@ def download_pdf(trip_id):
     # Summary cards row
     elements.append(Paragraph('Summary', h2_style))
     card_data = [[
-        Paragraph(f'<b>Total Spent</b><br/>₹ {summary["total_spent"]:,.2f}', normal),
+        Paragraph(f'<b>Total Spent</b><br/>Rs. {summary["total_spent"]:,.2f}', normal),
         Paragraph(f'<b>Participants</b><br/>{len(trip["participants"])} people', normal),
-        Paragraph(f'<b>Equal Split</b><br/>₹ {summary["per_head_equal"]:,.2f} / person', normal),
+        Paragraph(f'<b>Equal Split</b><br/>Rs. {summary["per_head_equal"]:,.2f} / person', normal),
         Paragraph(f'<b>Expenses</b><br/>{len(trip["expenses"])} entries', normal),
     ]]
     card_table = Table(card_data, colWidths=[4.25*cm]*4)
@@ -343,20 +450,40 @@ def download_pdf(trip_id):
 
     # Expenses table
     elements.append(Paragraph('Expense Details', h2_style))
-    exp_header = ['#', 'Description', 'Paid By', 'Split Among', 'Amount (₹)']
+    exp_header = ['#', 'Description', 'Date', 'Paid By', 'Split Among', 'Amount (Rs.)']
     exp_rows = [exp_header]
     for i, exp in enumerate(trip['expenses'], 1):
         splitters = exp.get('split_among', trip['participants'])
         split_str = ', '.join(splitters) if splitters != trip['participants'] else 'All'
+        exp_date = exp.get('date', '')
+
+        # Build description cell - include thumbnail if photo exists
+        desc_content = [Paragraph(exp['description'], normal)]
+        photo_ext = exp.get('photo_ext', '')
+        if photo_ext:
+            photo_path = os.path.join(_data_dir, 'photos', f'{exp["id"]}.{photo_ext}')
+            if os.path.exists(photo_path):
+                try:
+                    img = RLImage(photo_path)
+                    img_w, img_h = img.imageWidth, img.imageHeight
+                    max_w = 3 * cm
+                    scale = min(max_w / img_w, max_w / img_h) if img_w and img_h else 1
+                    img.drawWidth = img_w * scale
+                    img.drawHeight = img_h * scale
+                    desc_content.append(img)
+                except Exception:
+                    pass
+
         exp_rows.append([
             str(i),
-            Paragraph(exp['description'], normal),
+            desc_content if len(desc_content) > 1 else Paragraph(exp['description'], normal),
+            Paragraph(exp_date, normal),
             exp['paid_by'],
             Paragraph(split_str, normal),
             f'{float(exp["amount"]):,.2f}',
         ])
 
-    exp_table = Table(exp_rows, colWidths=[0.8*cm, 5.5*cm, 3*cm, 5*cm, 2.7*cm])
+    exp_table = Table(exp_rows, colWidths=[0.7*cm, 4.5*cm, 2*cm, 2.5*cm, 4*cm, 2.5*cm])
     exp_style = TableStyle([
         ('BACKGROUND',    (0,0), (-1,0),  BLUE),
         ('TEXTCOLOR',     (0,0), (-1,0),  WHITE),
@@ -365,7 +492,7 @@ def download_pdf(trip_id):
         ('ALIGN',         (0,0), (-1,0),  'CENTER'),
         ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, LGRAY]),
         ('FONTSIZE',      (0,1), (-1,-1), 8),
-        ('ALIGN',         (4,1), (4,-1),  'RIGHT'),
+        ('ALIGN',         (5,1), (5,-1),  'RIGHT'),
         ('ALIGN',         (0,1), (0,-1),  'CENTER'),
         ('GRID',          (0,0), (-1,-1), 0.4, MGRAY),
         ('TOPPADDING',    (0,0), (-1,-1), 6),
@@ -380,7 +507,7 @@ def download_pdf(trip_id):
 
     # Balance table
     elements.append(Paragraph('Balance per Person', h2_style))
-    bal_header = ['Name', 'Total Paid (₹)', 'Fair Share (₹)', 'Balance (₹)', 'Status']
+    bal_header = ['Name', 'Total Paid (Rs.)', 'Fair Share (Rs.)', 'Balance (Rs.)', 'Status']
     bal_rows = [bal_header]
     for s in summary['settlement']:
         balance = s['dues']
@@ -410,7 +537,6 @@ def download_pdf(trip_id):
         ('RIGHTPADDING',  (0,0), (-1,-1), 6),
         ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
     ])
-    # Colour the Status column
     for row_i, s in enumerate(summary['settlement'], 1):
         if s['dues'] > 0.01:
             bal_style.add('TEXTCOLOR', (4, row_i), (4, row_i), GREEN)
@@ -425,7 +551,7 @@ def download_pdf(trip_id):
     # Settlement transfers
     if summary['transfers']:
         elements.append(Paragraph('Settlement Transfers', h2_style))
-        txn_header = ['From', 'To', 'Amount (₹)']
+        txn_header = ['From', 'To', 'Amount (Rs.)']
         txn_rows = [txn_header]
         for t in summary['transfers']:
             txn_rows.append([t['from'], t['to'], f'{t["amount"]:,.2f}'])
@@ -453,7 +579,7 @@ def download_pdf(trip_id):
     # Participants list
     elements.append(Paragraph('Participants', h2_style))
     elements.append(Paragraph(
-        '  ·  '.join(trip['participants']),
+        '  .  '.join(trip['participants']),
         ParagraphStyle('parts', fontSize=9, textColor=BLACK, fontName='Helvetica', leading=14)
     ))
     elements.append(Spacer(1, 0.6*cm))
@@ -462,7 +588,7 @@ def download_pdf(trip_id):
     elements.append(HRFlowable(width='100%', thickness=0.5, color=MGRAY))
     elements.append(Spacer(1, 0.2*cm))
     elements.append(Paragraph(
-        f'Trip Expenses Calculator  ·  Generated on {downloaded_at}',
+        f'Trip Expenses Calculator  .  Generated on {downloaded_at}',
         footer_style
     ))
 

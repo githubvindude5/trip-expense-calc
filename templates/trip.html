@@ -6,19 +6,51 @@
   <div class="page-header-row">
     <h1>{{ trip.name }}</h1>
     <div class="trip-actions">
-      <a href="{{ url_for('download_pdf', trip_id=trip_id) }}" class="btn btn-pdf">⬇ Download PDF</a>
+      <a href="{{ url_for('download_pdf', trip_id=trip_id) }}" class="btn btn-pdf">⬇ PDF</a>
+      <button class="btn btn-whatsapp" onclick="sharePDF()">📤 Share</button>
       <a href="{{ url_for('export_trip', trip_id=trip_id) }}" class="btn btn-export">↓ Export</a>
+      {% if is_creator or not has_password %}
       <form method="POST" action="{{ url_for('delete_trip', trip_id=trip_id) }}"
             onsubmit="return confirm('Delete this trip? Export it first if you want to keep a backup.')">
         <button type="submit" class="btn btn-danger-sm">Delete Trip</button>
       </form>
+      {% endif %}
     </div>
   </div>
+
   <div class="participant-chips">
     {% for p in trip.participants %}
       <span class="chip">{{ p }}</span>
     {% endfor %}
   </div>
+
+  <!-- Add Participant -->
+  <form method="POST" action="{{ url_for('add_participant', trip_id=trip_id) }}" class="add-participant-form">
+    <input type="text" name="person" placeholder="Add person..." maxlength="40"
+           {% if trip.participants|length >= 10 %}disabled title="Maximum 10 participants"{% endif %}>
+    <button type="submit" class="btn btn-secondary btn-sm"
+            {% if trip.participants|length >= 10 %}disabled{% endif %}>+ Add</button>
+  </form>
+
+  <!-- Creator Section -->
+  {% if has_password %}
+    {% if is_creator %}
+    <div class="creator-bar creator-active">
+      <span class="creator-badge">Creator active ✓</span>
+      <form method="POST" action="{{ url_for('creator_logout', trip_id=trip_id) }}" style="display:inline">
+        <button type="submit" class="btn btn-sm btn-secondary">Logout</button>
+      </form>
+    </div>
+    {% else %}
+    <details class="creator-login-details">
+      <summary class="creator-login-summary">🔒 Creator Login</summary>
+      <form method="POST" action="{{ url_for('creator_login', trip_id=trip_id) }}" class="creator-login-form">
+        <input type="password" name="password" placeholder="Enter creator password" required>
+        <button type="submit" class="btn btn-primary btn-sm">Login</button>
+      </form>
+    </details>
+    {% endif %}
+  {% endif %}
 </div>
 
 <!-- Summary Cards -->
@@ -40,9 +72,9 @@
 <div class="two-col">
   <!-- Left: Add Expense + Expense List -->
   <div class="col-main">
-    <div class="card">
+    <div class="card" id="add-expense-card">
       <h2 class="card-title">Add Expense</h2>
-      <form method="POST" action="{{ url_for('add_expense', trip_id=trip_id) }}">
+      <form method="POST" action="{{ url_for('add_expense', trip_id=trip_id) }}" enctype="multipart/form-data">
         <div class="form-row">
           <div class="form-group flex-2">
             <label>Description</label>
@@ -53,6 +85,17 @@
             <input type="number" name="amount" placeholder="0" min="0" step="0.01" required>
           </div>
         </div>
+
+        <!-- Date row -->
+        <div class="form-group">
+          <label>Date</label>
+          <div class="date-quickpick">
+            <button type="button" class="btn btn-date-quick" onclick="setDate('today')">Today</button>
+            <button type="button" class="btn btn-date-quick" onclick="setDate('yesterday')">Yesterday</button>
+            <input type="date" name="expense_date" id="expense_date" class="date-input">
+          </div>
+        </div>
+
         <div class="form-row">
           <div class="form-group flex-1">
             <label>Paid By</label>
@@ -63,7 +106,12 @@
               {% endfor %}
             </select>
           </div>
+          <div class="form-group flex-1">
+            <label>Photo <span class="hint">(optional)</span></label>
+            <input type="file" name="photo" accept="image/*" class="file-input">
+          </div>
         </div>
+
         <div class="form-group">
           <label>Split Among <span class="hint">(default: everyone)</span></label>
           <div class="checkbox-group">
@@ -82,51 +130,64 @@
     {% if trip.expenses %}
     <div class="card">
       <h2 class="card-title">Expenses</h2>
-      <table class="expenses-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Description</th>
-            <th>Paid By</th>
-            <th>Amount</th>
-            <th>Per Head</th>
-            <th>Split Among</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for exp in trip.expenses %}
-          {% set splitters = exp.split_among if exp.split_among else trip.participants %}
-          {% set per_head = exp.amount / splitters|length %}
-          <tr>
-            <td class="muted">{{ loop.index }}</td>
-            <td>{{ exp.description or '—' }}</td>
-            <td><span class="chip chip-sm">{{ exp.paid_by }}</span></td>
-            <td class="amount">₹{{ "%.2f"|format(exp.amount) }}</td>
-            <td class="muted">₹{{ "%.2f"|format(per_head) }}</td>
-            <td class="split-cell">
-              {% if splitters|length == trip.participants|length %}
-                <span class="muted">All</span>
-              {% else %}
-                {% for s in splitters %}<span class="chip chip-xs">{{ s }}</span>{% endfor %}
-              {% endif %}
-            </td>
-            <td>
-              <form method="POST" action="{{ url_for('delete_expense', trip_id=trip_id, expense_id=exp.id) }}">
-                <button type="submit" class="btn-icon btn-delete" title="Delete">✕</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colspan="3"><strong>Total</strong></td>
-            <td class="amount"><strong>₹{{ "%.2f"|format(summary.total_spent) }}</strong></td>
-            <td colspan="3"></td>
-          </tr>
-        </tfoot>
-      </table>
+      <div class="table-scroll">
+        <table class="expenses-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Description</th>
+              <th>Date</th>
+              <th>Paid By</th>
+              <th>Amount</th>
+              <th class="hide-mobile">Per Head</th>
+              <th class="hide-mobile">Split Among</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for exp in trip.expenses %}
+            {% set splitters = exp.split_among if exp.split_among else trip.participants %}
+            {% set per_head = exp.amount / splitters|length %}
+            <tr>
+              <td class="muted">{{ loop.index }}</td>
+              <td>
+                {{ exp.description or '—' }}
+                {% if exp.photo_ext %}
+                <a href="{{ url_for('serve_photo', expense_id=exp.id) }}" target="_blank" class="photo-thumb-link">
+                  <img src="{{ url_for('serve_photo', expense_id=exp.id) }}" class="photo-thumb" alt="photo">
+                </a>
+                {% endif %}
+              </td>
+              <td class="muted date-cell">{{ exp.date or '' }}</td>
+              <td><span class="chip chip-sm">{{ exp.paid_by }}</span></td>
+              <td class="amount">₹{{ "%.2f"|format(exp.amount) }}</td>
+              <td class="muted hide-mobile">₹{{ "%.2f"|format(per_head) }}</td>
+              <td class="split-cell hide-mobile">
+                {% if splitters|length == trip.participants|length %}
+                  <span class="muted">All</span>
+                {% else %}
+                  {% for s in splitters %}<span class="chip chip-xs">{{ s }}</span>{% endfor %}
+                {% endif %}
+              </td>
+              <td>
+                {% if is_creator or not has_password %}
+                <form method="POST" action="{{ url_for('delete_expense', trip_id=trip_id, expense_id=exp.id) }}">
+                  <button type="submit" class="btn-icon btn-delete" title="Delete">✕</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4"><strong>Total</strong></td>
+              <td class="amount"><strong>₹{{ "%.2f"|format(summary.total_spent) }}</strong></td>
+              <td colspan="3"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
     {% endif %}
   </div>
@@ -181,4 +242,64 @@
     {% endif %}
   </div>
 </div>
+
+<!-- FAB: Add Expense (mobile) -->
+<a href="#add-expense-card" class="fab-add" title="Add Expense">+</a>
+
+<script>
+// Date quick-pick
+function setDate(when) {
+  const input = document.getElementById('expense_date');
+  const d = new Date();
+  if (when === 'yesterday') d.setDate(d.getDate() - 1);
+  input.value = d.toISOString().split('T')[0];
+  // Highlight active button
+  document.querySelectorAll('.btn-date-quick').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+// Set today's date by default on load
+window.addEventListener('DOMContentLoaded', function() {
+  const input = document.getElementById('expense_date');
+  if (!input.value) {
+    input.value = new Date().toISOString().split('T')[0];
+  }
+  // Mark today button active initially
+  document.querySelectorAll('.btn-date-quick')[0].classList.add('active');
+
+  // When user picks a date manually, remove active from quick buttons
+  input.addEventListener('change', function() {
+    document.querySelectorAll('.btn-date-quick').forEach(b => b.classList.remove('active'));
+  });
+});
+
+// Share PDF / WhatsApp
+async function sharePDF() {
+  const tripUrl = window.location.href;
+  const pdfUrl = '{{ url_for("download_pdf", trip_id=trip_id) }}';
+
+  if (navigator.share) {
+    try {
+      // Try to share PDF file
+      const resp = await fetch(pdfUrl);
+      const blob = await resp.blob();
+      const file = new File([blob], '{{ trip.name | replace(" ", "_") }}.pdf', { type: 'application/pdf' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: '{{ trip.name }} - Trip Expenses' });
+        return;
+      }
+      // Fallback: share URL
+      await navigator.share({ title: '{{ trip.name }} - Trip Expenses', url: tripUrl });
+      return;
+    } catch (e) {
+      // fall through to WhatsApp
+    }
+  }
+
+  // WhatsApp fallback
+  const text = encodeURIComponent('Check out our trip expenses: ' + tripUrl);
+  window.open('https://wa.me/?text=' + text, '_blank');
+}
+</script>
 {% endblock %}
