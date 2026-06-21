@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}{{ trip.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{{ url_for('index') }}" class="back-link">← All Trips</a>
+  <div class="page-header-row">
+    <h1>{{ trip.name }}</h1>
+    <div class="trip-actions">
+      <a href="{{ url_for('export_trip', trip_id=trip_id) }}" class="btn btn-export">↓ Export</a>
+      <form method="POST" action="{{ url_for('delete_trip', trip_id=trip_id) }}"
+            onsubmit="return confirm('Delete this trip? Export it first if you want to keep a backup.')">
+        <button type="submit" class="btn btn-danger-sm">Delete Trip</button>
+      </form>
+    </div>
+  </div>
+  <div class="participant-chips">
+    {% for p in trip.participants %}
+      <span class="chip">{{ p }}</span>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="summary-cards">
+  <div class="summary-card total">
+    <div class="summary-label">Total Spent</div>
+    <div class="summary-value">₹{{ "%.2f"|format(summary.total_spent) }}</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-label">Equal Per Head</div>
+    <div class="summary-value">₹{{ "%.2f"|format(summary.per_head_equal) }}</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-label">Expenses</div>
+    <div class="summary-value">{{ trip.expenses|length }}</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <!-- Left: Add Expense + Expense List -->
+  <div class="col-main">
+    <div class="card">
+      <h2 class="card-title">Add Expense</h2>
+      <form method="POST" action="{{ url_for('add_expense', trip_id=trip_id) }}">
+        <div class="form-row">
+          <div class="form-group flex-2">
+            <label>Description</label>
+            <input type="text" name="description" placeholder="e.g. Petrol, Dinner, Hotel" required>
+          </div>
+          <div class="form-group flex-1">
+            <label>Amount (₹)</label>
+            <input type="number" name="amount" placeholder="0" min="0" step="0.01" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Paid By</label>
+            <select name="paid_by" required>
+              <option value="">Select person</option>
+              {% for p in trip.participants %}
+                <option value="{{ p }}">{{ p }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Split Among <span class="hint">(default: everyone)</span></label>
+          <div class="checkbox-group">
+            {% for p in trip.participants %}
+            <label class="checkbox-label">
+              <input type="checkbox" name="split_among" value="{{ p }}" checked>
+              <span>{{ p }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Expense</button>
+      </form>
+    </div>
+
+    {% if trip.expenses %}
+    <div class="card">
+      <h2 class="card-title">Expenses</h2>
+      <table class="expenses-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Description</th>
+            <th>Paid By</th>
+            <th>Amount</th>
+            <th>Per Head</th>
+            <th>Split Among</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for exp in trip.expenses %}
+          {% set splitters = exp.split_among if exp.split_among else trip.participants %}
+          {% set per_head = exp.amount / splitters|length %}
+          <tr>
+            <td class="muted">{{ loop.index }}</td>
+            <td>{{ exp.description or '—' }}</td>
+            <td><span class="chip chip-sm">{{ exp.paid_by }}</span></td>
+            <td class="amount">₹{{ "%.2f"|format(exp.amount) }}</td>
+            <td class="muted">₹{{ "%.2f"|format(per_head) }}</td>
+            <td class="split-cell">
+              {% if splitters|length == trip.participants|length %}
+                <span class="muted">All</span>
+              {% else %}
+                {% for s in splitters %}<span class="chip chip-xs">{{ s }}</span>{% endfor %}
+              {% endif %}
+            </td>
+            <td>
+              <form method="POST" action="{{ url_for('delete_expense', trip_id=trip_id, expense_id=exp.id) }}">
+                <button type="submit" class="btn-icon btn-delete" title="Delete">✕</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3"><strong>Total</strong></td>
+            <td class="amount"><strong>₹{{ "%.2f"|format(summary.total_spent) }}</strong></td>
+            <td colspan="3"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right: Settlement -->
+  <div class="col-side">
+    <div class="card">
+      <h2 class="card-title">Settlement Summary</h2>
+      <table class="settlement-table">
+        <thead>
+          <tr><th>Name</th><th>Paid</th><th>Share</th><th>Dues</th></tr>
+        </thead>
+        <tbody>
+          {% for s in summary.settlement %}
+          <tr>
+            <td><strong>{{ s.name }}</strong></td>
+            <td>₹{{ "%.2f"|format(s.paid) }}</td>
+            <td>₹{{ "%.2f"|format(s.share) }}</td>
+            <td class="{{ 'dues-negative' if s.dues > 0 else 'dues-positive' if s.dues < 0 else '' }}">
+              {% if s.dues > 0.01 %}
+                gets ₹{{ "%.2f"|format(s.dues) }}
+              {% elif s.dues < -0.01 %}
+                owes ₹{{ "%.2f"|format(-s.dues) }}
+              {% else %}
+                settled ✓
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if summary.transfers %}
+    <div class="card">
+      <h2 class="card-title">Who Pays Whom</h2>
+      <div class="transfers-list">
+        {% for t in summary.transfers %}
+        <div class="transfer-row">
+          <span class="transfer-from">{{ t.from }}</span>
+          <span class="transfer-arrow">→</span>
+          <span class="transfer-to">{{ t.to }}</span>
+          <span class="transfer-amount">₹{{ "%.2f"|format(t.amount) }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="empty-small">All settled up! 🎉</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

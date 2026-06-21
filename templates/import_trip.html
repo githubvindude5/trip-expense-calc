@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Import Trip{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{{ url_for('index') }}" class="back-link">← Back</a>
+  <h1>Import Trip</h1>
+  <p class="subtitle">Restore a previously exported trip from a JSON file</p>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+    <div class="alert alert-{{ category }}">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="card form-card">
+  <form method="POST" enctype="multipart/form-data">
+    <div class="form-group">
+      <label for="trip_file">Select exported trip file (.json)</label>
+      <div class="file-drop-area" id="drop-area">
+        <div class="file-drop-icon">📂</div>
+        <div class="file-drop-text">Drag & drop your export file here, or</div>
+        <label class="btn btn-secondary file-btn">
+          Browse File
+          <input type="file" id="trip_file" name="trip_file" accept=".json" required style="display:none" onchange="showFileName(this)">
+        </label>
+        <div class="file-name-display" id="file-name-display"></div>
+      </div>
+    </div>
+    <div class="import-note">
+      <strong>Note:</strong> If the original trip ID is already in use, a new ID will be assigned automatically. All expense data will be preserved exactly as exported.
+    </div>
+    <div class="form-actions">
+      <a href="{{ url_for('index') }}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Import Trip</button>
+    </div>
+  </form>
+</div>
+
+<script>
+function showFileName(input) {
+  const display = document.getElementById('file-name-display');
+  if (input.files.length > 0) {
+    display.textContent = '✓ ' + input.files[0].name;
+    display.style.color = '#188038';
+  }
+}
+
+const dropArea = document.getElementById('drop-area');
+dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
+dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
+dropArea.addEventListener('drop', e => {
+  e.preventDefault();
+  dropArea.classList.remove('drag-over');
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    document.getElementById('trip_file').files = files;
+    showFileName(document.getElementById('trip_file'));
+  }
+});
+</script>
+{% endblock %}

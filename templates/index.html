@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}My Trips{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>My Trips</h1>
+  <p class="subtitle">Track and settle expenses with up to 10 people</p>
+</div>
+
+{% if trips %}
+<div class="trips-grid">
+  {% for trip in trips %}
+  <a href="{{ url_for('trip_detail', trip_id=trip.id) }}" class="trip-card">
+    <div class="trip-card-header">
+      <h2>{{ trip.name }}</h2>
+      <span class="participant-count">{{ trip.participants|length }} people</span>
+    </div>
+    <div class="trip-card-body">
+      <div class="participant-chips">
+        {% for p in trip.participants[:5] %}
+          <span class="chip">{{ p }}</span>
+        {% endfor %}
+        {% if trip.participants|length > 5 %}
+          <span class="chip chip-more">+{{ trip.participants|length - 5 }} more</span>
+        {% endif %}
+      </div>
+      <div class="trip-meta">
+        <span>{{ trip.expenses|length }} expense{{ 's' if trip.expenses|length != 1 }}</span>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">🧳</div>
+  <h2>No trips yet</h2>
+  <p>Create your first trip to start tracking expenses</p>
+  <a href="{{ url_for('new_trip') }}" class="btn btn-primary btn-lg">+ Create Trip</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}New Trip{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{{ url_for('index') }}" class="back-link">← Back</a>
+  <h1>Create New Trip</h1>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card form-card">
+  <form method="POST" id="new-trip-form">
+    <div class="form-group">
+      <label for="name">Trip Name</label>
+      <input type="text" id="name" name="name" placeholder="e.g. Goa 2025, Nagarhole Trip" required>
+    </div>
+
+    <div class="form-group">
+      <label>Participants <span class="hint">(2–10 people)</span></label>
+      <div id="participants-list">
+        <div class="participant-row">
+          <input type="text" name="participants" placeholder="Person 1 name" required>
+          <button type="button" class="btn-icon remove-participant" onclick="removeParticipant(this)" disabled>✕</button>
+        </div>
+        <div class="participant-row">
+          <input type="text" name="participants" placeholder="Person 2 name" required>
+          <button type="button" class="btn-icon remove-participant" onclick="removeParticipant(this)" disabled>✕</button>
+        </div>
+      </div>
+      <button type="button" class="btn btn-secondary" id="add-person-btn" onclick="addParticipant()">+ Add Person</button>
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ url_for('index') }}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Create Trip</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const MAX = 10;
+
+function updateButtons() {
+  const rows = document.querySelectorAll('.participant-row');
+  const removeButtons = document.querySelectorAll('.remove-participant');
+  removeButtons.forEach(btn => btn.disabled = rows.length <= 2);
+  document.getElementById('add-person-btn').disabled = rows.length >= MAX;
+  document.getElementById('add-person-btn').style.opacity = rows.length >= MAX ? '0.5' : '1';
+}
+
+function addParticipant() {
+  const list = document.getElementById('participants-list');
+  const count = list.querySelectorAll('.participant-row').length + 1;
+  if (count > MAX) return;
+  const div = document.createElement('div');
+  div.className = 'participant-row';
+  div.innerHTML = `<input type="text" name="participants" placeholder="Person ${count} name">
+    <button type="button" class="btn-icon remove-participant" onclick="removeParticipant(this)">✕</button>`;
+  list.appendChild(div);
+  updateButtons();
+  div.querySelector('input').focus();
+}
+
+function removeParticipant(btn) {
+  const rows = document.querySelectorAll('.participant-row');
+  if (rows.length <= 2) return;
+  btn.closest('.participant-row').remove();
+  updateButtons();
+}
+
+updateButtons();
+</script>
+{% endblock %}
