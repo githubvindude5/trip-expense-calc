@@ -6,6 +6,7 @@
   <div class="page-header-row">
     <h1>{{ trip.name }}</h1>
     <div class="trip-actions">
+      <a href="{{ url_for('download_pdf', trip_id=trip_id) }}" class="btn btn-pdf">⬇ Download PDF</a>
       <a href="{{ url_for('export_trip', trip_id=trip_id) }}" class="btn btn-export">↓ Export</a>
       <form method="POST" action="{{ url_for('delete_trip', trip_id=trip_id) }}"
             onsubmit="return confirm('Delete this trip? Export it first if you want to keep a backup.')">

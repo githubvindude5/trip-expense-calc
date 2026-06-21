@@ -2,7 +2,14 @@ import json
 import os
 import uuid
 import datetime
+import io
 from flask import Flask, render_template, request, redirect, url_for, Response, flash
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'trip-expenses-secret')
@@ -242,6 +249,233 @@ def import_trip():
         return redirect(url_for('trip_detail', trip_id=trip_id))
 
     return render_template('import_trip.html')
+
+
+@app.route('/trip/<trip_id>/download_pdf')
+def download_pdf(trip_id):
+    data = load_data()
+    trip = data.get(trip_id)
+    if not trip:
+        return redirect(url_for('index'))
+
+    summary = calculate_settlement(trip)
+    now = datetime.datetime.now()
+    downloaded_at = now.strftime('%d %B %Y, %I:%M %p')
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=2*cm, rightMargin=2*cm,
+        topMargin=2*cm, bottomMargin=2*cm
+    )
+
+    styles = getSampleStyleSheet()
+    BLUE   = colors.HexColor('#1a73e8')
+    DBLUE  = colors.HexColor('#174ea6')
+    LGRAY  = colors.HexColor('#f1f3f4')
+    MGRAY  = colors.HexColor('#dadce0')
+    GREEN  = colors.HexColor('#188038')
+    RED    = colors.HexColor('#d93025')
+    WHITE  = colors.white
+    BLACK  = colors.HexColor('#202124')
+
+    title_style = ParagraphStyle('title', fontSize=22, textColor=WHITE,
+                                  fontName='Helvetica-Bold', alignment=TA_CENTER, spaceAfter=4)
+    sub_style   = ParagraphStyle('sub',   fontSize=10, textColor=colors.HexColor('#e8eaed'),
+                                  fontName='Helvetica', alignment=TA_CENTER)
+    h2_style    = ParagraphStyle('h2',    fontSize=13, textColor=DBLUE,
+                                  fontName='Helvetica-Bold', spaceBefore=14, spaceAfter=6)
+    normal      = ParagraphStyle('norm',  fontSize=9,  textColor=BLACK,
+                                  fontName='Helvetica', leading=13)
+    footer_style= ParagraphStyle('foot',  fontSize=8,  textColor=colors.HexColor('#80868b'),
+                                  fontName='Helvetica', alignment=TA_CENTER)
+
+    elements = []
+
+    # Header banner
+    header_data = [[
+        Paragraph(f'✈  {trip["name"]}', title_style),
+    ]]
+    header_table = Table(header_data, colWidths=[17*cm])
+    header_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), BLUE),
+        ('ROUNDEDCORNERS', [8]),
+        ('TOPPADDING',    (0,0), (-1,-1), 14),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('LEFTPADDING',   (0,0), (-1,-1), 12),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 12),
+    ]))
+    elements.append(header_table)
+
+    sub_data = [[Paragraph(f'Downloaded on {downloaded_at}', sub_style)]]
+    sub_table = Table(sub_data, colWidths=[17*cm])
+    sub_table.setStyle(TableStyle([
+        ('BACKGROUND',    (0,0), (-1,-1), DBLUE),
+        ('TOPPADDING',    (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ('LEFTPADDING',   (0,0), (-1,-1), 12),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 12),
+    ]))
+    elements.append(sub_table)
+    elements.append(Spacer(1, 0.4*cm))
+
+    # Summary cards row
+    elements.append(Paragraph('Summary', h2_style))
+    card_data = [[
+        Paragraph(f'<b>Total Spent</b><br/>₹ {summary["total_spent"]:,.2f}', normal),
+        Paragraph(f'<b>Participants</b><br/>{len(trip["participants"])} people', normal),
+        Paragraph(f'<b>Equal Split</b><br/>₹ {summary["per_head_equal"]:,.2f} / person', normal),
+        Paragraph(f'<b>Expenses</b><br/>{len(trip["expenses"])} entries', normal),
+    ]]
+    card_table = Table(card_data, colWidths=[4.25*cm]*4)
+    card_table.setStyle(TableStyle([
+        ('BACKGROUND',    (0,0), (-1,-1), LGRAY),
+        ('BOX',           (0,0), (-1,-1), 0.5, MGRAY),
+        ('INNERGRID',     (0,0), (-1,-1), 0.5, MGRAY),
+        ('TOPPADDING',    (0,0), (-1,-1), 10),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ('LEFTPADDING',   (0,0), (-1,-1), 10),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 10),
+        ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    elements.append(card_table)
+    elements.append(Spacer(1, 0.4*cm))
+
+    # Expenses table
+    elements.append(Paragraph('Expense Details', h2_style))
+    exp_header = ['#', 'Description', 'Paid By', 'Split Among', 'Amount (₹)']
+    exp_rows = [exp_header]
+    for i, exp in enumerate(trip['expenses'], 1):
+        splitters = exp.get('split_among', trip['participants'])
+        split_str = ', '.join(splitters) if splitters != trip['participants'] else 'All'
+        exp_rows.append([
+            str(i),
+            Paragraph(exp['description'], normal),
+            exp['paid_by'],
+            Paragraph(split_str, normal),
+            f'{float(exp["amount"]):,.2f}',
+        ])
+
+    exp_table = Table(exp_rows, colWidths=[0.8*cm, 5.5*cm, 3*cm, 5*cm, 2.7*cm])
+    exp_style = TableStyle([
+        ('BACKGROUND',    (0,0), (-1,0),  BLUE),
+        ('TEXTCOLOR',     (0,0), (-1,0),  WHITE),
+        ('FONTNAME',      (0,0), (-1,0),  'Helvetica-Bold'),
+        ('FONTSIZE',      (0,0), (-1,0),  9),
+        ('ALIGN',         (0,0), (-1,0),  'CENTER'),
+        ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, LGRAY]),
+        ('FONTSIZE',      (0,1), (-1,-1), 8),
+        ('ALIGN',         (4,1), (4,-1),  'RIGHT'),
+        ('ALIGN',         (0,1), (0,-1),  'CENTER'),
+        ('GRID',          (0,0), (-1,-1), 0.4, MGRAY),
+        ('TOPPADDING',    (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING',   (0,0), (-1,-1), 6),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 6),
+        ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
+    ])
+    exp_table.setStyle(exp_style)
+    elements.append(exp_table)
+    elements.append(Spacer(1, 0.4*cm))
+
+    # Balance table
+    elements.append(Paragraph('Balance per Person', h2_style))
+    bal_header = ['Name', 'Total Paid (₹)', 'Fair Share (₹)', 'Balance (₹)', 'Status']
+    bal_rows = [bal_header]
+    for s in summary['settlement']:
+        balance = s['dues']
+        status = 'Gets back' if balance > 0.01 else ('Owes' if balance < -0.01 else 'Settled')
+        bal_rows.append([
+            s['name'],
+            f'{s["paid"]:,.2f}',
+            f'{s["share"]:,.2f}',
+            f'{abs(balance):,.2f}',
+            status,
+        ])
+
+    bal_table = Table(bal_rows, colWidths=[3.5*cm, 3.5*cm, 3.5*cm, 3.5*cm, 3*cm])
+    bal_style = TableStyle([
+        ('BACKGROUND',    (0,0), (-1,0),  BLUE),
+        ('TEXTCOLOR',     (0,0), (-1,0),  WHITE),
+        ('FONTNAME',      (0,0), (-1,0),  'Helvetica-Bold'),
+        ('FONTSIZE',      (0,0), (-1,0),  9),
+        ('ALIGN',         (0,0), (-1,0),  'CENTER'),
+        ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, LGRAY]),
+        ('FONTSIZE',      (0,1), (-1,-1), 8),
+        ('ALIGN',         (1,1), (3,-1),  'RIGHT'),
+        ('GRID',          (0,0), (-1,-1), 0.4, MGRAY),
+        ('TOPPADDING',    (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING',   (0,0), (-1,-1), 6),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 6),
+        ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
+    ])
+    # Colour the Status column
+    for row_i, s in enumerate(summary['settlement'], 1):
+        if s['dues'] > 0.01:
+            bal_style.add('TEXTCOLOR', (4, row_i), (4, row_i), GREEN)
+            bal_style.add('FONTNAME',  (4, row_i), (4, row_i), 'Helvetica-Bold')
+        elif s['dues'] < -0.01:
+            bal_style.add('TEXTCOLOR', (4, row_i), (4, row_i), RED)
+            bal_style.add('FONTNAME',  (4, row_i), (4, row_i), 'Helvetica-Bold')
+    bal_table.setStyle(bal_style)
+    elements.append(bal_table)
+    elements.append(Spacer(1, 0.4*cm))
+
+    # Settlement transfers
+    if summary['transfers']:
+        elements.append(Paragraph('Settlement Transfers', h2_style))
+        txn_header = ['From', 'To', 'Amount (₹)']
+        txn_rows = [txn_header]
+        for t in summary['transfers']:
+            txn_rows.append([t['from'], t['to'], f'{t["amount"]:,.2f}'])
+
+        txn_table = Table(txn_rows, colWidths=[6*cm, 6*cm, 5*cm])
+        txn_table.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,0),  colors.HexColor('#34a853')),
+            ('TEXTCOLOR',     (0,0), (-1,0),  WHITE),
+            ('FONTNAME',      (0,0), (-1,0),  'Helvetica-Bold'),
+            ('FONTSIZE',      (0,0), (-1,0),  9),
+            ('ALIGN',         (0,0), (-1,0),  'CENTER'),
+            ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, colors.HexColor('#e6f4ea')]),
+            ('FONTSIZE',      (0,1), (-1,-1), 9),
+            ('ALIGN',         (2,1), (2,-1),  'RIGHT'),
+            ('GRID',          (0,0), (-1,-1), 0.4, MGRAY),
+            ('TOPPADDING',    (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('LEFTPADDING',   (0,0), (-1,-1), 10),
+            ('RIGHTPADDING',  (0,0), (-1,-1), 10),
+            ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        elements.append(txn_table)
+        elements.append(Spacer(1, 0.4*cm))
+
+    # Participants list
+    elements.append(Paragraph('Participants', h2_style))
+    elements.append(Paragraph(
+        '  ·  '.join(trip['participants']),
+        ParagraphStyle('parts', fontSize=9, textColor=BLACK, fontName='Helvetica', leading=14)
+    ))
+    elements.append(Spacer(1, 0.6*cm))
+
+    # Footer
+    elements.append(HRFlowable(width='100%', thickness=0.5, color=MGRAY))
+    elements.append(Spacer(1, 0.2*cm))
+    elements.append(Paragraph(
+        f'Trip Expenses Calculator  ·  Generated on {downloaded_at}',
+        footer_style
+    ))
+
+    doc.build(elements)
+    buf.seek(0)
+
+    safe_name = trip['name'].replace(' ', '_').lower()
+    filename = f'{safe_name}_{now.strftime("%Y%m%d_%H%M")}.pdf'
+    return Response(
+        buf,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
 
 
 if __name__ == '__main__':

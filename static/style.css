@@ -52,6 +52,8 @@ body {
 .btn-danger-sm:hover { background: #fdd; }
 .btn-export { background: #e6f4ea; color: #188038; border: 1px solid #b7dfbf; font-size: 13px; padding: 6px 12px; border-radius: 5px; font-weight: 600; }
 .btn-export:hover { background: #ceead6; }
+.btn-pdf { background: #fce8e6; color: #c5221f; border: 1px solid #f5c6c3; font-size: 13px; padding: 6px 12px; border-radius: 5px; font-weight: 600; }
+.btn-pdf:hover { background: #fad2cf; }
 .btn-nav-import { background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.4); font-size: 13px; padding: 6px 12px; border-radius: 5px; font-weight: 600; }
 .btn-nav-import:hover { background: rgba(255,255,255,0.25); opacity: 1; }
 .btn-icon { background: none; border: none; cursor: pointer; color: #aaa; font-size: 14px; padding: 4px 6px; border-radius: 4px; }
