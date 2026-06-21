@@ -33,13 +33,13 @@
     </div>
 
     <div class="form-group">
-      <label for="creator_password">Creator Password <span class="hint">(optional — protects delete actions)</span></label>
-      <input type="password" id="creator_password" name="creator_password" placeholder="Leave blank for no protection" autocomplete="new-password">
+      <label for="creator_password">Creator Password <span class="hint">(required — only creator can delete expenses)</span></label>
+      <input type="password" id="creator_password" name="creator_password" placeholder="Set a password to protect this trip" autocomplete="new-password" required minlength="4">
     </div>
 
     <div class="form-group">
       <label for="confirm_password">Confirm Password</label>
-      <input type="password" id="confirm_password" name="confirm_password" placeholder="Repeat password to confirm" autocomplete="new-password">
+      <input type="password" id="confirm_password" name="confirm_password" placeholder="Repeat password to confirm" autocomplete="new-password" required minlength="4">
     </div>
 
     <div class="form-actions">

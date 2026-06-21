@@ -126,7 +126,13 @@ def new_trip():
         if not name or len(participants) < 2:
             return render_template('new_trip.html', error='Please enter a trip name and at least 2 participants.')
 
-        if creator_password and creator_password != confirm_password:
+        if not creator_password:
+            return render_template('new_trip.html', error='A creator password is required.')
+
+        if len(creator_password) < 4:
+            return render_template('new_trip.html', error='Password must be at least 4 characters.')
+
+        if creator_password != confirm_password:
             return render_template('new_trip.html', error='Passwords do not match.')
 
         data = load_data()
@@ -137,14 +143,10 @@ def new_trip():
             'expenses': [],
             'created_at': datetime.datetime.now().isoformat(),
         }
-        if creator_password:
-            trip['creator_password'] = generate_password_hash(creator_password)
-
+        trip['creator_password'] = generate_password_hash(creator_password)
         data[trip_id] = trip
         save_data(data)
-
-        if creator_password:
-            session[f'creator_{trip_id}'] = True
+        session[f'creator_{trip_id}'] = True
 
         return redirect(url_for('trip_detail', trip_id=trip_id))
     return render_template('new_trip.html')
