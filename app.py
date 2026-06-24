@@ -181,7 +181,12 @@ def index():
     if is_admin:
         trips = all_trips
     else:
-        trips = [t for t in all_trips if t.get('owner_email') == email or email in t.get('members', [])]
+        def has_access(t):
+            members = t.get('members', [])
+            # support both old list-of-strings and new list-of-dicts
+            member_emails = [m['email'] if isinstance(m, dict) else m for m in members]
+            return t.get('owner_email') == email or email in member_emails
+        trips = [t for t in all_trips if has_access(t)]
     trips.sort(key=lambda x: x.get('created_at', ''), reverse=True)
     return render_template('index.html', trips=trips, user_name=name, user_email=email, is_admin=is_admin)
 
@@ -292,17 +297,25 @@ def add_member(trip_id):
         flash('Only the trip owner can manage members.', 'error')
         return redirect(url_for('trip_detail', trip_id=trip_id))
     member_email = request.form.get('member_email', '').strip().lower()
+    member_name = request.form.get('member_name', '').strip()
     if not member_email:
         flash('Please enter an email address.', 'error')
+        return redirect(url_for('trip_detail', trip_id=trip_id))
+    if not member_name:
+        flash('Please enter a display name.', 'error')
         return redirect(url_for('trip_detail', trip_id=trip_id))
     if member_email == trip.get('owner_email'):
         flash('That email is already the trip owner.', 'error')
         return redirect(url_for('trip_detail', trip_id=trip_id))
     members = trip.setdefault('members', [])
-    if member_email not in members:
-        members.append(member_email)
+    existing_emails = [m['email'] if isinstance(m, dict) else m for m in members]
+    if member_email not in existing_emails:
+        members.append({'email': member_email, 'name': member_name})
+        # Auto-add name to participants if not already there
+        if member_name not in trip['participants'] and len(trip['participants']) < 10:
+            trip['participants'].append(member_name)
         save_data(data)
-        flash(f'{member_email} can now access this trip.', 'success')
+        flash(f'{member_name} ({member_email}) can now access this trip.', 'success')
     else:
         flash(f'{member_email} already has access.', 'error')
     return redirect(url_for('trip_detail', trip_id=trip_id))
@@ -321,7 +334,8 @@ def remove_member(trip_id):
         flash('Only the trip owner can manage members.', 'error')
         return redirect(url_for('trip_detail', trip_id=trip_id))
     member_email = request.form.get('member_email', '').strip().lower()
-    trip['members'] = [m for m in trip.get('members', []) if m != member_email]
+    trip['members'] = [m for m in trip.get('members', [])
+                       if (m['email'] if isinstance(m, dict) else m) != member_email]
     save_data(data)
     flash(f'{member_email} removed from trip.', 'success')
     return redirect(url_for('trip_detail', trip_id=trip_id))

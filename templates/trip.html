@@ -41,10 +41,15 @@
       <div class="members-list">
         <div class="members-label">People with access:</div>
         {% for m in trip.members %}
+        {% set m_name = m.name if m is mapping else m %}
+        {% set m_email = m.email if m is mapping else m %}
         <div class="member-row">
-          <span class="member-email">{{ m }}</span>
+          <div class="member-info">
+            <span class="member-name">{{ m_name }}</span>
+            <span class="member-email-small">{{ m_email }}</span>
+          </div>
           <form method="POST" action="{{ url_for('remove_member', trip_id=trip_id) }}" style="display:inline">
-            <input type="hidden" name="member_email" value="{{ m }}">
+            <input type="hidden" name="member_email" value="{{ m_email }}">
             <button type="submit" class="btn-icon btn-delete" title="Remove access">✕</button>
           </form>
         </div>
@@ -52,10 +57,13 @@
       </div>
       {% endif %}
       <form method="POST" action="{{ url_for('add_member', trip_id=trip_id) }}" class="add-member-form">
-        <input type="email" name="member_email" placeholder="Enter Google email to share with" required>
+        <div class="add-member-fields">
+          <input type="text" name="member_name" placeholder="Display name (e.g. Rahul)" required>
+          <input type="email" name="member_email" placeholder="Their Google email" required>
+        </div>
         <button type="submit" class="btn btn-primary btn-sm">Add</button>
       </form>
-      <div class="share-hint">They must sign in with this Google account to view and add expenses.</div>
+      <div class="share-hint">Their name will appear in expenses. They sign in with their Google account to access.</div>
     </div>
   </details>
   {% endif %}
@@ -224,29 +232,43 @@
   <div class="col-side">
     <div class="card">
       <h2 class="card-title">Settlement Summary</h2>
-      <table class="settlement-table">
-        <thead>
-          <tr><th>Name</th><th>Paid</th><th>Share</th><th>Dues</th></tr>
-        </thead>
-        <tbody>
-          {% for s in summary.settlement %}
-          <tr>
-            <td><strong>{{ s.name }}</strong></td>
-            <td>₹{{ "%.2f"|format(s.paid) }}</td>
-            <td>₹{{ "%.2f"|format(s.share) }}</td>
-            <td class="{{ 'dues-negative' if s.dues > 0 else 'dues-positive' if s.dues < 0 else '' }}">
-              {% if s.dues > 0.01 %}
-                gets ₹{{ "%.2f"|format(s.dues) }}
-              {% elif s.dues < -0.01 %}
-                owes ₹{{ "%.2f"|format(-s.dues) }}
-              {% else %}
-                settled ✓
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="settlement-cards">
+        {% for s in summary.settlement %}
+        {% if s.dues > 0.01 %}
+          {% set status = 'gets' %}
+          {% set status_class = 'status-gets' %}
+          {% set status_label = 'gets back' %}
+          {% set dues_val = s.dues %}
+        {% elif s.dues < -0.01 %}
+          {% set status = 'owes' %}
+          {% set status_class = 'status-owes' %}
+          {% set status_label = 'owes' %}
+          {% set dues_val = -s.dues %}
+        {% else %}
+          {% set status = 'settled' %}
+          {% set status_class = 'status-settled' %}
+          {% set status_label = 'settled' %}
+          {% set dues_val = 0 %}
+        {% endif %}
+        <div class="settlement-person {{ status_class }}">
+          <div class="settlement-person-left">
+            <div class="settlement-avatar">{{ s.name[0]|upper }}</div>
+            <div class="settlement-person-info">
+              <div class="settlement-name">{{ s.name }}</div>
+              <div class="settlement-meta">paid ₹{{ "%.0f"|format(s.paid) }} · share ₹{{ "%.0f"|format(s.share) }}</div>
+            </div>
+          </div>
+          <div class="settlement-right">
+            {% if status == 'settled' %}
+              <span class="settlement-badge badge-settled">✓ settled</span>
+            {% else %}
+              <div class="settlement-dues-label">{{ status_label }}</div>
+              <div class="settlement-dues-amount">₹{{ "%.2f"|format(dues_val) }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
     </div>
 
     {% if summary.transfers %}
@@ -255,9 +277,11 @@
       <div class="transfers-list">
         {% for t in summary.transfers %}
         <div class="transfer-row">
-          <span class="transfer-from">{{ t.from }}</span>
-          <span class="transfer-arrow">→</span>
-          <span class="transfer-to">{{ t.to }}</span>
+          <div class="transfer-left">
+            <span class="transfer-from">{{ t.from }}</span>
+            <span class="transfer-arrow">→</span>
+            <span class="transfer-to">{{ t.to }}</span>
+          </div>
           <span class="transfer-amount">₹{{ "%.2f"|format(t.amount) }}</span>
         </div>
         {% endfor %}

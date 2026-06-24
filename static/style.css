@@ -568,3 +568,45 @@ body {
 .add-member-form { display: flex; gap: 8px; }
 .add-member-form input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
 .share-hint { font-size: 11px; color: #999; margin-top: 8px; }
+
+/* Settlement cards */
+.settlement-cards { display: flex; flex-direction: column; gap: 10px; }
+.settlement-person {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-radius: 10px; border-left: 4px solid #eee;
+  background: #fafafa;
+}
+.settlement-person.status-gets { border-left-color: #188038; background: #f0faf3; }
+.settlement-person.status-owes { border-left-color: #d93025; background: #fff5f5; }
+.settlement-person.status-settled { border-left-color: #bbb; background: #f8f9fa; }
+
+.settlement-person-left { display: flex; align-items: center; gap: 10px; }
+.settlement-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: #1a73e8; color: #fff;
+  font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.status-gets .settlement-avatar { background: #188038; }
+.status-owes .settlement-avatar { background: #d93025; }
+.status-settled .settlement-avatar { background: #aaa; }
+
+.settlement-name { font-size: 14px; font-weight: 600; color: #222; }
+.settlement-meta { font-size: 11px; color: #888; margin-top: 2px; }
+
+.settlement-right { text-align: right; }
+.settlement-dues-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.4px; }
+.settlement-dues-amount { font-size: 17px; font-weight: 700; }
+.status-gets .settlement-dues-amount { color: #188038; }
+.status-owes .settlement-dues-amount { color: #d93025; }
+
+.settlement-badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
+.badge-settled { background: #e8f5e9; color: #388e3c; }
+
+/* Updated share form */
+.add-member-fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.add-member-fields input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; width: 100%; }
+.member-info { display: flex; flex-direction: column; }
+.member-name { font-size: 13px; font-weight: 600; color: #222; }
+.member-email-small { font-size: 11px; color: #999; }
