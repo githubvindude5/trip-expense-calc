@@ -7,6 +7,7 @@ from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, Response, flash, session, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_dance.contrib.google import make_google_blueprint, google
+from werkzeug.middleware.proxy_fix import ProxyFix
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -17,8 +18,12 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'trip-expenses-secret-dev')
 
-# Allow OAuth over HTTP in local dev; production must use HTTPS
-os.environ.setdefault('OAUTHLIB_INSECURE_TRANSPORT', '1')
+# Trust Railway's HTTPS proxy so redirect_uri is built with https://
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+# Allow HTTP only in local dev (never on Railway)
+if os.environ.get('FLASK_ENV') == 'development' or not os.environ.get('GOOGLE_CLIENT_ID'):
+    os.environ.setdefault('OAUTHLIB_INSECURE_TRANSPORT', '1')
 
 ADMIN_EMAIL = 'vindude5@gmail.com'
 
