@@ -181,7 +181,7 @@ def index():
     if is_admin:
         trips = all_trips
     else:
-        trips = [t for t in all_trips if t.get('owner_email') == email]
+        trips = [t for t in all_trips if t.get('owner_email') == email or email in t.get('members', [])]
     trips.sort(key=lambda x: x.get('created_at', ''), reverse=True)
     return render_template('index.html', trips=trips, user_name=name, user_email=email, is_admin=is_admin)
 
@@ -237,9 +237,10 @@ def trip_detail(trip_id):
     is_creator = session.get(f'creator_{trip_id}', False)
     has_password = bool(trip.get('creator_password'))
     email, name = get_current_user()
+    is_owner = (email == trip.get('owner_email')) or (email == ADMIN_EMAIL)
     return render_template('trip.html', trip=trip, trip_id=trip_id, summary=summary,
                            is_creator=is_creator, has_password=has_password,
-                           user_name=name, user_email=email)
+                           is_owner=is_owner, user_name=name, user_email=email)
 
 
 @app.route('/trip/<trip_id>/creator_login', methods=['POST'])
@@ -275,6 +276,54 @@ def add_participant(trip_id):
     if person and person not in trip['participants'] and len(trip['participants']) < 10:
         trip['participants'].append(person)
         save_data(data)
+    return redirect(url_for('trip_detail', trip_id=trip_id))
+
+
+@app.route('/trip/<trip_id>/add_member', methods=['POST'])
+@login_required
+def add_member(trip_id):
+    data = load_data()
+    trip = data.get(trip_id)
+    if not trip:
+        return redirect(url_for('index'))
+    email, _ = get_current_user()
+    is_owner = (email == trip.get('owner_email')) or (email == ADMIN_EMAIL)
+    if not is_owner:
+        flash('Only the trip owner can manage members.', 'error')
+        return redirect(url_for('trip_detail', trip_id=trip_id))
+    member_email = request.form.get('member_email', '').strip().lower()
+    if not member_email:
+        flash('Please enter an email address.', 'error')
+        return redirect(url_for('trip_detail', trip_id=trip_id))
+    if member_email == trip.get('owner_email'):
+        flash('That email is already the trip owner.', 'error')
+        return redirect(url_for('trip_detail', trip_id=trip_id))
+    members = trip.setdefault('members', [])
+    if member_email not in members:
+        members.append(member_email)
+        save_data(data)
+        flash(f'{member_email} can now access this trip.', 'success')
+    else:
+        flash(f'{member_email} already has access.', 'error')
+    return redirect(url_for('trip_detail', trip_id=trip_id))
+
+
+@app.route('/trip/<trip_id>/remove_member', methods=['POST'])
+@login_required
+def remove_member(trip_id):
+    data = load_data()
+    trip = data.get(trip_id)
+    if not trip:
+        return redirect(url_for('index'))
+    email, _ = get_current_user()
+    is_owner = (email == trip.get('owner_email')) or (email == ADMIN_EMAIL)
+    if not is_owner:
+        flash('Only the trip owner can manage members.', 'error')
+        return redirect(url_for('trip_detail', trip_id=trip_id))
+    member_email = request.form.get('member_email', '').strip().lower()
+    trip['members'] = [m for m in trip.get('members', []) if m != member_email]
+    save_data(data)
+    flash(f'{member_email} removed from trip.', 'success')
     return redirect(url_for('trip_detail', trip_id=trip_id))
 
 

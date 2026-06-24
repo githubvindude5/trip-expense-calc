@@ -32,6 +32,34 @@
             {% if trip.participants|length >= 10 %}disabled{% endif %}>+ Add</button>
   </form>
 
+  <!-- Share Trip (owner only) -->
+  {% if is_owner %}
+  <details class="share-details">
+    <summary class="share-summary">👥 Share Trip</summary>
+    <div class="share-body">
+      {% if trip.members %}
+      <div class="members-list">
+        <div class="members-label">People with access:</div>
+        {% for m in trip.members %}
+        <div class="member-row">
+          <span class="member-email">{{ m }}</span>
+          <form method="POST" action="{{ url_for('remove_member', trip_id=trip_id) }}" style="display:inline">
+            <input type="hidden" name="member_email" value="{{ m }}">
+            <button type="submit" class="btn-icon btn-delete" title="Remove access">✕</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <form method="POST" action="{{ url_for('add_member', trip_id=trip_id) }}" class="add-member-form">
+        <input type="email" name="member_email" placeholder="Enter Google email to share with" required>
+        <button type="submit" class="btn btn-primary btn-sm">Add</button>
+      </form>
+      <div class="share-hint">They must sign in with this Google account to view and add expenses.</div>
+    </div>
+  </details>
+  {% endif %}
+
   <!-- Creator Section -->
   {% if has_password %}
     {% if is_creator %}

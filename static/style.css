@@ -555,3 +555,16 @@ body {
 .btn-google { display: flex; align-items: center; justify-content: center; width: 100%; padding: 13px 20px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; color: #3c4043; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; transition: box-shadow 0.15s, background 0.15s; }
 .btn-google:hover { background: #f8f9fa; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
 .login-note { margin-top: 20px; font-size: 12px; color: #aaa; }
+
+/* Share trip */
+.share-details { margin-top: 10px; }
+.share-summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #1a73e8; padding: 6px 0; list-style: none; }
+.share-summary::-webkit-details-marker { display: none; }
+.share-body { background: #f8f9fa; border-radius: 8px; padding: 14px; margin-top: 8px; }
+.members-label { font-size: 12px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
+.members-list { margin-bottom: 12px; }
+.member-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #fff; border-radius: 6px; margin-bottom: 4px; font-size: 13px; }
+.member-email { color: #333; }
+.add-member-form { display: flex; gap: 8px; }
+.add-member-form input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+.share-hint { font-size: 11px; color: #999; margin-top: 8px; }
