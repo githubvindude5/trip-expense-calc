@@ -539,3 +539,19 @@ body {
   .nav-brand { font-size: 20px; }
   .navbar { padding: 0 24px; }
 }
+
+/* Nav user */
+.nav-user { display: flex; align-items: center; gap: 8px; border-left: 1px solid rgba(255,255,255,0.3); padding-left: 10px; }
+.nav-user-name { color: #fff; font-size: 13px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-nav-logout { color: rgba(255,255,255,0.8); font-size: 16px; text-decoration: none; padding: 4px 6px; border-radius: 4px; }
+.btn-nav-logout:hover { color: #fff; background: rgba(255,255,255,0.15); }
+
+/* Login page */
+.login-body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a73e8 0%, #174ea6 100%); }
+.login-card { background: #fff; border-radius: 16px; padding: 48px 40px; text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.18); max-width: 380px; width: 90%; }
+.login-icon { font-size: 48px; margin-bottom: 12px; }
+.login-title { font-size: 28px; font-weight: 700; color: #1a73e8; margin-bottom: 8px; }
+.login-subtitle { color: #666; font-size: 15px; margin-bottom: 32px; }
+.btn-google { display: flex; align-items: center; justify-content: center; width: 100%; padding: 13px 20px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; color: #3c4043; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; transition: box-shadow 0.15s, background 0.15s; }
+.btn-google:hover { background: #f8f9fa; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+.login-note { margin-top: 20px; font-size: 12px; color: #aaa; }

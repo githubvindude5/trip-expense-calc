@@ -3,8 +3,10 @@ import os
 import uuid
 import datetime
 import io
+from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, Response, flash, session, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_dance.contrib.google import make_google_blueprint, google
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -13,7 +15,22 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'trip-expenses-secret')
+app.secret_key = os.environ.get('SECRET_KEY', 'trip-expenses-secret-dev')
+
+# Allow OAuth over HTTP in local dev; production must use HTTPS
+os.environ.setdefault('OAUTHLIB_INSECURE_TRANSPORT', '1')
+
+ADMIN_EMAIL = 'vindude5@gmail.com'
+
+# Google OAuth blueprint
+google_bp = make_google_blueprint(
+    client_id=os.environ.get('GOOGLE_CLIENT_ID'),
+    client_secret=os.environ.get('GOOGLE_CLIENT_SECRET'),
+    scope=['openid', 'https://www.googleapis.com/auth/userinfo.email',
+           'https://www.googleapis.com/auth/userinfo.profile'],
+    redirect_to='index',
+)
+app.register_blueprint(google_bp, url_prefix='/login')
 
 # DATA_DIR: use /data (Railway/Render persistent volume) if it exists, else local data/
 _data_dir = '/data' if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data')
@@ -22,6 +39,30 @@ os.makedirs(os.path.join(_data_dir, 'photos'), exist_ok=True)
 DATA_FILE = os.path.join(_data_dir, 'trips.json')
 
 ALLOWED_PHOTO_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp'}
+
+
+def get_current_user():
+    """Return (email, name) of logged-in user, or (None, None)."""
+    if not google.authorized:
+        return None, None
+    try:
+        resp = google.get('/oauth2/v2/userinfo')
+        if resp.ok:
+            info = resp.json()
+            return info.get('email'), info.get('name', info.get('email', ''))
+    except Exception:
+        pass
+    return None, None
+
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        email, _ = get_current_user()
+        if not email:
+            return redirect(url_for('login_page'))
+        return f(*args, **kwargs)
+    return decorated
 
 
 def load_data():
@@ -107,15 +148,41 @@ def simplify_debts(settlement):
     return transfers
 
 
+@app.route('/login-page')
+def login_page():
+    email, _ = get_current_user()
+    if email:
+        return redirect(url_for('index'))
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    # Clear flask-dance token and our session data
+    token = google_bp.token
+    if token:
+        del google_bp.token
+    session.clear()
+    return redirect(url_for('login_page'))
+
+
 @app.route('/')
+@login_required
 def index():
+    email, name = get_current_user()
+    is_admin = (email == ADMIN_EMAIL)
     data = load_data()
-    trips = [{'id': k, **v} for k, v in data.items()]
+    all_trips = [{'id': k, **v} for k, v in data.items()]
+    if is_admin:
+        trips = all_trips
+    else:
+        trips = [t for t in all_trips if t.get('owner_email') == email]
     trips.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-    return render_template('index.html', trips=trips)
+    return render_template('index.html', trips=trips, user_name=name, user_email=email, is_admin=is_admin)
 
 
 @app.route('/trip/new', methods=['GET', 'POST'])
+@login_required
 def new_trip():
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
@@ -143,7 +210,9 @@ def new_trip():
             'expenses': [],
             'created_at': datetime.datetime.now().isoformat(),
         }
+        email, _ = get_current_user()
         trip['creator_password'] = generate_password_hash(creator_password)
+        trip['owner_email'] = email
         data[trip_id] = trip
         save_data(data)
         session[f'creator_{trip_id}'] = True
@@ -153,6 +222,7 @@ def new_trip():
 
 
 @app.route('/trip/<trip_id>')
+@login_required
 def trip_detail(trip_id):
     data = load_data()
     trip = data.get(trip_id)
@@ -161,11 +231,14 @@ def trip_detail(trip_id):
     summary = calculate_settlement(trip)
     is_creator = session.get(f'creator_{trip_id}', False)
     has_password = bool(trip.get('creator_password'))
+    email, name = get_current_user()
     return render_template('trip.html', trip=trip, trip_id=trip_id, summary=summary,
-                           is_creator=is_creator, has_password=has_password)
+                           is_creator=is_creator, has_password=has_password,
+                           user_name=name, user_email=email)
 
 
 @app.route('/trip/<trip_id>/creator_login', methods=['POST'])
+@login_required
 def creator_login(trip_id):
     data = load_data()
     trip = data.get(trip_id)
@@ -180,12 +253,14 @@ def creator_login(trip_id):
 
 
 @app.route('/trip/<trip_id>/creator_logout', methods=['POST'])
+@login_required
 def creator_logout(trip_id):
     session.pop(f'creator_{trip_id}', None)
     return redirect(url_for('trip_detail', trip_id=trip_id))
 
 
 @app.route('/trip/<trip_id>/add_participant', methods=['POST'])
+@login_required
 def add_participant(trip_id):
     data = load_data()
     trip = data.get(trip_id)
@@ -199,6 +274,7 @@ def add_participant(trip_id):
 
 
 @app.route('/trip/<trip_id>/add_expense', methods=['POST'])
+@login_required
 def add_expense(trip_id):
     data = load_data()
     trip = data.get(trip_id)
@@ -246,6 +322,7 @@ def add_expense(trip_id):
 
 
 @app.route('/photo/<expense_id>')
+@login_required
 def serve_photo(expense_id):
     # Find photo file for this expense_id
     photos_dir = os.path.join(_data_dir, 'photos')
@@ -257,6 +334,7 @@ def serve_photo(expense_id):
 
 
 @app.route('/trip/<trip_id>/delete_expense/<expense_id>', methods=['POST'])
+@login_required
 def delete_expense(trip_id, expense_id):
     data = load_data()
     trip = data.get(trip_id)
@@ -278,6 +356,7 @@ def delete_expense(trip_id, expense_id):
 
 
 @app.route('/trip/<trip_id>/delete', methods=['POST'])
+@login_required
 def delete_trip(trip_id):
     data = load_data()
     trip = data.get(trip_id)
@@ -302,6 +381,7 @@ def delete_trip(trip_id):
 
 
 @app.route('/trip/<trip_id>/export')
+@login_required
 def export_trip(trip_id):
     data = load_data()
     trip = data.get(trip_id)
@@ -322,6 +402,7 @@ def export_trip(trip_id):
 
 
 @app.route('/import', methods=['GET', 'POST'])
+@login_required
 def import_trip():
     if request.method == 'POST':
         file = request.files.get('trip_file')
@@ -361,6 +442,7 @@ def import_trip():
 
 
 @app.route('/trip/<trip_id>/download_pdf')
+@login_required
 def download_pdf(trip_id):
     data = load_data()
     trip = data.get(trip_id)

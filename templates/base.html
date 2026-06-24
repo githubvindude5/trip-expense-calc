@@ -12,6 +12,12 @@
     <div class="nav-actions">
       <a href="{{ url_for('import_trip') }}" class="btn btn-nav-import">↑ Import</a>
       <a href="{{ url_for('new_trip') }}" class="btn btn-primary">+ New Trip</a>
+      {% if user_name or user_email %}
+      <div class="nav-user">
+        <span class="nav-user-name">{{ user_name or user_email }}</span>
+        <a href="{{ url_for('logout') }}" class="btn-nav-logout" title="Sign out">⏻</a>
+      </div>
+      {% endif %}
     </div>
   </nav>
   <div class="container">
